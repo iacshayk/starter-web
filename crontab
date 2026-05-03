@@ -1,0 +1,13 @@
+sudo mkdir -p /data/server_dump_app/logs
+
+sudo tee /etc/cron.d/server-dump-collector >/dev/null <<'EOF'
+SHELL=/bin/bash
+PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/bin
+MAILTO=""
+
+15 1 * * * root flock -n /var/run/server-dump-emea.lock /usr/local/bin/run-server-dump-collector --region emea --sudo --parallelism 140 --skip-mysql-index >> /data/server_dump_app/logs/collector-emea.log 2>&1
+30 3 * * * root flock -n /var/run/server-dump-japan.lock /usr/local/bin/run-server-dump-collector --region japan --sudo --parallelism 140 --skip-mysql-index >> /data/server_dump_app/logs/collector-japan.log 2>&1
+45 5 * * * root flock -n /var/run/server-dump-usa.lock /usr/local/bin/run-server-dump-collector --region usa --sudo --parallelism 140 --skip-mysql-index >> /data/server_dump_app/logs/collector-usa.log 2>&1
+EOF
+
+sudo chmod 644 /etc/cron.d/server-dump-collector
