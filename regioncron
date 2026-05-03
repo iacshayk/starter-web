@@ -1,0 +1,91 @@
+Yes. The safest way is not three separate cron lines, but one nightly script that runs the regions sequentially.
+
+Why this is better:
+- `emea` finishes first, then `japan`, then `usa`
+- no overlap between regions
+- if one run takes longer than expected, the next one still waits
+- one `flock` lock can protect the whole nightly cycle
+
+Use a wrapper like `/usr/local/bin/run-server-dump-nightly`:
+
+```bash
+#!/bin/bash
+set -euo pipefail
+
+LOG_DIR="/data/server_dump_app/logs"
+mkdir -p "$LOG_DIR"
+
+echo "[$(date -Is)] Starting nightly regional collection"
+
+run_region() {
+  local region="$1"
+  echo "[$(date -Is)] Starting region: $region"
+  /usr/local/bin/run-server-dump-collector \
+    --region "$region" \
+    --sudo \
+    --parallelism 140 \
+    --skip-mysql-index
+  echo "[$(date -Is)] Finished region: $region"
+}
+
+run_region emea
+run_region japan
+run_region usa
+
+echo "[$(date -Is)] Nightly regional collection completed"
+```
+
+Create it with:
+
+```bash
+sudo tee /usr/local/bin/run-server-dump-nightly >/dev/null <<'EOF'
+#!/bin/bash
+set -euo pipefail
+
+LOG_DIR="/data/server_dump_app/logs"
+mkdir -p "$LOG_DIR"
+
+echo "[$(date -Is)] Starting nightly regional collection"
+
+run_region() {
+  local region="$1"
+  echo "[$(date -Is)] Starting region: $region"
+  /usr/local/bin/run-server-dump-collector \
+    --region "$region" \
+    --sudo \
+    --parallelism 140 \
+    --skip-mysql-index
+  echo "[$(date -Is)] Finished region: $region"
+}
+
+run_region emea
+run_region japan
+run_region usa
+
+echo "[$(date -Is)] Nightly regional collection completed"
+EOF
+
+sudo chmod 755 /usr/local/bin/run-server-dump-nightly
+```
+
+Then cron at `12:01 AM`:
+
+```bash
+sudo tee /etc/cron.d/server-dump-nightly >/dev/null <<'EOF'
+SHELL=/bin/bash
+PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/bin
+CRON_TZ=Asia/Kolkata
+MAILTO=""
+
+1 0 * * * root flock -n /var/run/server-dump-nightly.lock /usr/local/bin/run-server-dump-nightly >> /data/server_dump_app/logs/collector-nightly.log 2>&1
+EOF
+
+sudo chmod 644 /etc/cron.d/server-dump-nightly
+```
+
+Important:
+- `1 0 * * *` means `12:01 AM`
+- `CRON_TZ=Asia/Kolkata` makes it run at 12:01 AM IST on the server
+- `flock` prevents a second nightly run from starting if the previous one is still running
+
+If you want, I can also update the branch docs with this exact nightly sequential cron setup.
